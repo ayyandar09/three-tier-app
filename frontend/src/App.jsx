@@ -26,8 +26,38 @@ function App() {
   };
 
   useEffect(() => {
-    loadTasks();
-  }, []);
+  let ignore = false;
+
+  const fetchTasks = async () => {
+    try {
+      const response = await fetch(`${API_URL}/api/tasks`);
+
+      if (!response.ok) {
+        throw new Error("Failed to load tasks");
+      }
+
+      const data = await response.json();
+
+      if (!ignore) {
+        setTasks(data);
+      }
+    } catch (error) {
+      if (!ignore) {
+        console.error(error);
+      }
+    } finally {
+      if (!ignore) {
+        setLoading(false);
+      }
+    }
+  };
+
+  fetchTasks();
+
+  return () => {
+    ignore = true;
+  };
+}, []);
 
   const createTask = async (event) => {
     event.preventDefault();
