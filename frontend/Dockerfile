@@ -19,6 +19,9 @@ RUN npm run build
 # Stage 2: Serve the application with Nginx
 FROM nginx:alpine
 
+# Update Alpine security packages
+RUN apk update && apk upgrade
+
 # Copy Vite's production build into Nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 
