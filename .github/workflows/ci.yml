@@ -56,6 +56,7 @@ jobs:
       - name: Build
         working-directory: frontend
         run: npm run build
+
   secret-scan:
     name: Secret Scan
     runs-on: ubuntu-latest
@@ -120,6 +121,22 @@ jobs:
             --config p/security-audit \
             --error
 
+  iac-scan:
+    name: IaC Security - Checkov
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Checkov
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: .
+          framework: kubernetes
+          quiet: true
+          soft_fail: false
+
   docker:
     name: Docker Build & Security Scan
     runs-on: ubuntu-latest
@@ -130,6 +147,7 @@ jobs:
       - secret-scan
       - dependency-scan
       - sast
+      - iac-scan
 
     steps:
       - name: Checkout code
