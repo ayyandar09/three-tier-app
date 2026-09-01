@@ -100,7 +100,21 @@ jobs:
       - name: Audit Node dependencies
         working-directory: frontend
         run: npm audit --audit-level=high
+  sast:
+    name: SAST - Semgrep
+    runs-on: ubuntu-latest
 
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep
+        uses: semgrep/semgrep-action@v1
+        with:
+          config: >-
+            p/python
+            p/javascript
+            p/security-audit
   docker:
     name: Docker Build & Security Scan
     runs-on: ubuntu-latest
@@ -110,6 +124,7 @@ jobs:
       - frontend
       - secret-scan
       - dependency-scan
+      - sast
 
     steps:
       - name: Checkout code
