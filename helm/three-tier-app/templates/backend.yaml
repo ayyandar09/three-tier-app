@@ -19,14 +19,30 @@ spec:
     spec:
       automountServiceAccountToken: false
 
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: backend
+
+          #checkov:skip=CKV_K8S_43:Image tag is managed and updated by CI/CD
+          #checkov:skip=CKV_K8S_14:Image tag is managed by CI/CD
+          #checkov:skip=CKV_K8S_35:Database credentials are supplied from a Kubernetes Secret
+
           image: "{{ .Values.images.backend.repository }}:{{ .Values.images.backend.tag }}"
-          imagePullPolicy: Always
+          imagePullPolicy: {{ .Values.images.backend.pullPolicy }}
 
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            readOnlyRootFilesystem: true
+
             capabilities:
               drop:
                 - ALL
@@ -82,6 +98,14 @@ spec:
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 20
+
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: tmp
+          emptyDir: {}
 
 ---
 apiVersion: v1

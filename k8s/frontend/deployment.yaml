@@ -19,26 +19,42 @@ spec:
     spec:
       automountServiceAccountToken: false
 
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 101
+        runAsGroup: 101
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: frontend
-          image: ayyandar/three-tier-frontend:latest
+
+          #checkov:skip=CKV_K8S_43:Image tag is managed and updated by CI/CD
+          #checkov:skip=CKV_K8S_14:Image tag is managed by CI/CD
+
+          image: ayyandar/three-tier-frontend:v2
           imagePullPolicy: Always
 
           securityContext:
             allowPrivilegeEscalation: false
             runAsNonRoot: true
+            runAsUser: 101
+            runAsGroup: 101
+            readOnlyRootFilesystem: true
+
             capabilities:
               drop:
                 - ALL
 
           ports:
-            - containerPort: 80
+            - containerPort: 8080
               name: http
 
           resources:
             requests:
               cpu: 100m
               memory: 128Mi
+
             limits:
               cpu: 500m
               memory: 512Mi
@@ -46,13 +62,71 @@ spec:
           readinessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 5
             periodSeconds: 10
 
           livenessProbe:
             httpGet:
               path: /
-              port: 80
+              port: 8080
             initialDelaySeconds: 15
             periodSeconds: 20
+
+          volumeMounts:
+            - name: nginx-cache
+              mountPath: /var/cache/nginx
+
+            - name: nginx-run
+              mountPath: /var/run/nginx
+
+            - name: nginx-tmp
+              mountPath: /tmp
+
+      volumes:
+        - name: nginx-cache
+          emptyDir: {}
+
+        - name: nginx-run
+          emptyDir: {}
+
+        - name: nginx-tmp
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: three-tier-app
+
+spec:
+  selector:
+    app: frontend
+
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 8080
+
+  type: NodePort
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-policy
+  namespace: three-tier-app
+
+spec:
+  podSelector:
+    matchLabels:
+      app: frontend
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 8080

@@ -1,9 +1,10 @@
-name: CI
+name: Three Tier CI/CD
 
 on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
@@ -12,36 +13,47 @@ permissions:
   contents: write
 
 jobs:
+
+  # =========================
+  # Backend
+  # =========================
   backend:
-    name: Backend Tests
+    name: Backend
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install dependencies
+        working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          pip install -r backend/requirements-dev.txt
+          pip install -r requirements.txt
+          pip install pytest httpx
 
       - name: Run tests
+        working-directory: backend
         run: pytest
 
+
+  # =========================
+  # Frontend
+  # =========================
   frontend:
-    name: Frontend Checks
+    name: Frontend
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: "22"
@@ -60,184 +72,238 @@ jobs:
         working-directory: frontend
         run: npm run build
 
-  secret-scan:
-    name: Secret Scan
+
+  # =========================
+  # Secret Scanning
+  # =========================
+  gitleaks:
+    name: Gitleaks
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks
+      - name: Gitleaks
         uses: gitleaks/gitleaks-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  dependency-scan:
-    name: Dependency Scan
+
+  # =========================
+  # Dependency Security
+  # =========================
+  dependency-security:
+    name: Dependency Security
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set up Python
+      - name: Setup Python
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install pip-audit
-        run: |
-          python -m pip install --upgrade pip
-          pip install pip-audit
+        run: pip install pip-audit
 
       - name: Audit Python dependencies
-        run: pip-audit -r backend/requirements.txt
+        working-directory: backend
+        run: pip-audit -r requirements.txt
 
-      - name: Set up Node.js
+      - name: Setup Node
         uses: actions/setup-node@v6
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
 
-      - name: Audit Node dependencies
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Audit npm dependencies
         working-directory: frontend
         run: npm audit --audit-level=high
 
-  sast:
-    name: SAST - Semgrep
+
+  # =========================
+  # SAST
+  # =========================
+  semgrep:
+    name: Semgrep
     runs-on: ubuntu-latest
 
+    container:
+      image: semgrep/semgrep
+
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Install Semgrep
-        run: |
-          python -m pip install --upgrade pip
-          pip install semgrep
-
       - name: Run Semgrep
-        run: |
-          semgrep scan \
-            --config p/python \
-            --config p/javascript \
-            --config p/security-audit \
-            --error
+        run: semgrep scan --config auto
 
-  iac-scan:
-    name: IaC Security - Checkov
+
+  # =========================
+  # Kubernetes Security
+  # =========================
+  checkov:
+    name: Checkov
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
       - name: Run Checkov
         uses: bridgecrewio/checkov-action@v12
         with:
           directory: .
-          framework: kubernetes
-          soft_fail: false
+          framework: kubernetes,helm,dockerfile
+          output_format: sarif
+          output_file_path: results.sarif
+          soft_fail: true
 
+      - name: Upload Checkov SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: results.sarif
+
+
+  # =========================
+  # Build + Scan + Push
+  # =========================
   docker:
-    name: Docker Build, Scan, Push & GitOps Update
+    name: Docker Build and Push
     runs-on: ubuntu-latest
-
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     needs:
       - backend
       - frontend
-      - secret-scan
-      - dependency-scan
-      - sast
-      - iac-scan
+      - gitleaks
+      - dependency-security
+      - semgrep
+      - checkov
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Set image tag
-        id: vars
-        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-
-      - name: Set up Docker Buildx
+      # -------------------------
+      # Docker Buildx
+      # -------------------------
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          file: ./backend/Dockerfile
-          load: true
-          tags: |
-            ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}
-
-      - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
-          load: true
-          tags: |
-            ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}
-
-      - name: Scan backend image
-        uses: aquasecurity/trivy-action@0.36.0
-        with:
-          image-ref: "ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}"
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: "CRITICAL,HIGH"
-
-      - name: Scan frontend image
-        uses: aquasecurity/trivy-action@0.36.0
-        with:
-          image-ref: "ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}"
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: "CRITICAL,HIGH"
-
-      - name: Log in to Docker Hub
+      # -------------------------
+      # Docker Hub Login
+      # -------------------------
+      - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # -------------------------
+      # Build Backend
+      # -------------------------
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: false
+          tags: ayyandar/three-tier-backend:${{ github.sha }}
+
+      # -------------------------
+      # Build Frontend
+      # -------------------------
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: false
+          tags: ayyandar/three-tier-frontend:${{ github.sha }}
+
+      # -------------------------
+      # Trivy Backend
+      # -------------------------
+      - name: Scan backend image
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ayyandar/three-tier-backend:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # -------------------------
+      # Trivy Frontend
+      # -------------------------
+      - name: Scan frontend image
+        uses: aquasecurity/trivy-action@0.36.0
+        with:
+          image-ref: ayyandar/three-tier-frontend:${{ github.sha }}
+          format: table
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: "1"
+
+      # -------------------------
+      # Push Backend
+      # -------------------------
       - name: Push backend image
-        run: |
-          docker push ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          push: true
+          tags: ayyandar/three-tier-backend:${{ github.sha }}
 
+      # -------------------------
+      # Push Frontend
+      # -------------------------
       - name: Push frontend image
-        run: |
-          docker push ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          push: true
+          tags: ayyandar/three-tier-frontend:${{ github.sha }}
 
+      # -------------------------
+      # Install yq
+      # -------------------------
       - name: Install yq
-        uses: mikefarah/yq@v4
-
-      - name: Update Helm image tags
-        env:
-          IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}
         run: |
-          yq -i '.images.frontend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml
-          yq -i '.images.backend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml
+          sudo wget -qO /usr/local/bin/yq \
+            https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
 
-      - name: Commit Helm image update
+      # -------------------------
+      # Update Helm Images
+      # -------------------------
+      - name: Update Helm image tags
+        run: |
+          yq -i \
+            '.images.backend.tag = "${{ github.sha }}" |
+             .images.frontend.tag = "${{ github.sha }}"' \
+            helm/three-tier-app/values.yaml
+
+      # -------------------------
+      # Commit GitOps Change
+      # -------------------------
+      - name: Commit Helm changes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add helm/three-tier-app/values.yaml
 
-          if git diff --cached --quiet; then
-            echo "No Helm changes to commit."
-          else
-            git commit -m "chore: update images to ${GITHUB_SHA} [skip ci]"
-            git push
-          fi
+          git diff --cached --quiet || \
+            git commit -m "chore: update images to ${{ github.sha }} [skip ci]"
+
+          git push

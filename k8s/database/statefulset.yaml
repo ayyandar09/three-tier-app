@@ -1,3 +1,72 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+  namespace: three-tier-app
+
+type: Opaque
+
+stringData:
+  POSTGRES_DB: tasks
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init
+  namespace: three-tier-app
+
+data:
+  init.sql: |
+    CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        completed BOOLEAN NOT NULL DEFAULT FALSE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO tasks (title, completed)
+    VALUES
+        ('Learn Kubernetes', FALSE),
+        ('Build CI/CD Pipeline', FALSE),
+        ('Deploy with Argo CD', FALSE);
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  namespace: three-tier-app
+
+spec:
+  accessModes:
+    - ReadWriteOnce
+
+  resources:
+    requests:
+      storage: 1Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: three-tier-app
+
+spec:
+  selector:
+    app: postgres
+
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+
+  type: ClusterIP
+
+---
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -20,13 +89,30 @@ spec:
     spec:
       automountServiceAccountToken: false
 
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: postgres
+
+          #checkov:skip=CKV_K8S_43:Official PostgreSQL image is pinned to a version tag
+          #checkov:skip=CKV_K8S_14:Official PostgreSQL image uses a fixed version tag
+
           image: postgres:16-alpine
           imagePullPolicy: Always
 
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: true
+
             capabilities:
               drop:
                 - ALL
@@ -58,6 +144,7 @@ spec:
             requests:
               cpu: 100m
               memory: 128Mi
+
             limits:
               cpu: 500m
               memory: 512Mi
@@ -68,6 +155,7 @@ spec:
                 - pg_isready
                 - -U
                 - postgres
+
             initialDelaySeconds: 10
             periodSeconds: 10
 
@@ -77,6 +165,7 @@ spec:
                 - pg_isready
                 - -U
                 - postgres
+
             initialDelaySeconds: 30
             periodSeconds: 20
 
@@ -87,6 +176,12 @@ spec:
             - name: postgres-init
               mountPath: /docker-entrypoint-initdb.d
 
+            - name: postgres-tmp
+              mountPath: /tmp
+
+            - name: postgres-run
+              mountPath: /var/run/postgresql
+
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
@@ -95,3 +190,34 @@ spec:
         - name: postgres-init
           configMap:
             name: postgres-init
+
+        - name: postgres-tmp
+          emptyDir: {}
+
+        - name: postgres-run
+          emptyDir: {}
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-policy
+  namespace: three-tier-app
+
+spec:
+  podSelector:
+    matchLabels:
+      app: postgres
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: backend
+
+      ports:
+        - protocol: TCP
+          port: 5432

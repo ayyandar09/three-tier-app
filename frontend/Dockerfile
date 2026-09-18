@@ -3,30 +3,48 @@ FROM node:22-alpine AS builder
 
 WORKDIR /app
 
-# Copy package files first for better Docker layer caching
 COPY package*.json ./
-
-# Install dependencies
 RUN npm ci
 
-# Copy application source code
 COPY . .
-
-# Build the production application
 RUN npm run build
 
 
-# Stage 2: Serve the application with Nginx
+# Stage 2: Serve with Nginx
 FROM nginx:alpine
 
-# Update Alpine security packages
 RUN apk update && apk upgrade
 
-# Copy Vite's production build into Nginx
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
-# Nginx listens on port 80
-EXPOSE 80
 
-# Keep Nginx running in the foreground
+# Prepare Nginx for non-root execution
+RUN mkdir -p /var/cache/nginx \
+    /var/run/nginx \
+    /tmp/nginx \
+    /tmp/client_temp \
+    /tmp/proxy_temp \
+    /tmp/fastcgi_temp \
+    /tmp/uwsgi_temp \
+    /tmp/scgi_temp \
+    && chown -R 101:101 /var/cache/nginx \
+    /var/run/nginx \
+    /usr/share/nginx/html \
+    /tmp/nginx \
+    /tmp/client_temp \
+    /tmp/proxy_temp \
+    /tmp/fastcgi_temp \
+    /tmp/uwsgi_temp \
+    /tmp/scgi_temp
+
+# Change Nginx to non-root port
+RUN sed -i 's/listen       80;/listen       8080;/' \
+    /etc/nginx/conf.d/default.conf \
+    && sed -i 's@pid        /run/nginx.pid;@pid        /tmp/nginx/nginx.pid;@' \
+    /etc/nginx/nginx.conf
+
+USER 101
+
+EXPOSE 8080
+
 CMD ["nginx", "-g", "daemon off;"]

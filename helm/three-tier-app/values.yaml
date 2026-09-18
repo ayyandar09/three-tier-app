@@ -6,14 +6,14 @@ images:
   frontend:
     repository: ayyandar/three-tier-frontend
     tag: "dev"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   backend:
     repository: ayyandar/three-tier-backend
     tag: "dev"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always
 
   database:
     repository: postgres
     tag: "16-alpine"
-    pullPolicy: IfNotPresent
+    pullPolicy: Always

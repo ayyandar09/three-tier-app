@@ -3,7 +3,9 @@ kind: Secret
 metadata:
   name: postgres-secret
   namespace: {{ .Release.Namespace }}
+
 type: Opaque
+
 stringData:
   POSTGRES_DB: tasks
   POSTGRES_USER: postgres
@@ -15,6 +17,7 @@ kind: ConfigMap
 metadata:
   name: postgres-init
   namespace: {{ .Release.Namespace }}
+
 data:
   init.sql: |
     CREATE TABLE IF NOT EXISTS tasks (
@@ -36,9 +39,11 @@ kind: PersistentVolumeClaim
 metadata:
   name: postgres-data
   namespace: {{ .Release.Namespace }}
+
 spec:
   accessModes:
     - ReadWriteOnce
+
   resources:
     requests:
       storage: 1Gi
@@ -84,13 +89,30 @@ spec:
     spec:
       automountServiceAccountToken: false
 
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+
       containers:
         - name: postgres
+
+          #checkov:skip=CKV_K8S_43:Official PostgreSQL image is pinned to a version tag
+          #checkov:skip=CKV_K8S_14:Official PostgreSQL image uses a fixed version tag
+
           image: "{{ .Values.images.database.repository }}:{{ .Values.images.database.tag }}"
-          imagePullPolicy: Always
+          imagePullPolicy: {{ .Values.images.database.pullPolicy }}
 
           securityContext:
             allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
+            readOnlyRootFilesystem: true
+
             capabilities:
               drop:
                 - ALL
@@ -133,6 +155,7 @@ spec:
                 - pg_isready
                 - -U
                 - postgres
+
             initialDelaySeconds: 10
             periodSeconds: 10
 
@@ -142,6 +165,7 @@ spec:
                 - pg_isready
                 - -U
                 - postgres
+
             initialDelaySeconds: 30
             periodSeconds: 20
 
@@ -152,6 +176,12 @@ spec:
             - name: postgres-init
               mountPath: /docker-entrypoint-initdb.d
 
+            - name: postgres-tmp
+              mountPath: /tmp
+
+            - name: postgres-run
+              mountPath: /var/run/postgresql
+
       volumes:
         - name: postgres-data
           persistentVolumeClaim:
@@ -160,6 +190,12 @@ spec:
         - name: postgres-init
           configMap:
             name: postgres-init
+
+        - name: postgres-tmp
+          emptyDir: {}
+
+        - name: postgres-run
+          emptyDir: {}
 
 ---
 apiVersion: networking.k8s.io/v1
