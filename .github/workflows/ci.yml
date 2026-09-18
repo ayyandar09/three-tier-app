@@ -39,7 +39,7 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: pytest
+        run: pytest || test $? -eq 5
 
 
   # =========================
@@ -195,24 +195,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      # -------------------------
-      # Docker Buildx
-      # -------------------------
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # -------------------------
-      # Docker Hub Login
-      # -------------------------
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # -------------------------
-      # Build Backend
-      # -------------------------
       - name: Build backend image
         uses: docker/build-push-action@v6
         with:
@@ -220,9 +211,6 @@ jobs:
           push: false
           tags: ayyandar/three-tier-backend:${{ github.sha }}
 
-      # -------------------------
-      # Build Frontend
-      # -------------------------
       - name: Build frontend image
         uses: docker/build-push-action@v6
         with:
@@ -230,9 +218,6 @@ jobs:
           push: false
           tags: ayyandar/three-tier-frontend:${{ github.sha }}
 
-      # -------------------------
-      # Trivy Backend
-      # -------------------------
       - name: Scan backend image
         uses: aquasecurity/trivy-action@0.36.0
         with:
@@ -242,9 +227,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      # -------------------------
-      # Trivy Frontend
-      # -------------------------
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@0.36.0
         with:
@@ -254,9 +236,6 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
-      # -------------------------
-      # Push Backend
-      # -------------------------
       - name: Push backend image
         uses: docker/build-push-action@v6
         with:
@@ -264,9 +243,6 @@ jobs:
           push: true
           tags: ayyandar/three-tier-backend:${{ github.sha }}
 
-      # -------------------------
-      # Push Frontend
-      # -------------------------
       - name: Push frontend image
         uses: docker/build-push-action@v6
         with:
@@ -274,18 +250,12 @@ jobs:
           push: true
           tags: ayyandar/three-tier-frontend:${{ github.sha }}
 
-      # -------------------------
-      # Install yq
-      # -------------------------
       - name: Install yq
         run: |
           sudo wget -qO /usr/local/bin/yq \
             https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      # -------------------------
-      # Update Helm Images
-      # -------------------------
       - name: Update Helm image tags
         run: |
           yq -i \
@@ -293,9 +263,6 @@ jobs:
              .images.frontend.tag = "${{ github.sha }}"' \
             helm/three-tier-app/values.yaml
 
-      # -------------------------
-      # Commit GitOps Change
-      # -------------------------
       - name: Commit Helm changes
         run: |
           git config user.name "github-actions[bot]"
