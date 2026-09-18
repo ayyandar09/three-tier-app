@@ -220,7 +220,7 @@ jobs:
           tags: ayyandar/three-tier-frontend:${{ github.sha }}
 
       - name: Scan backend image
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: ayyandar/three-tier-backend:${{ github.sha }}
           format: table
@@ -229,7 +229,7 @@ jobs:
           exit-code: "1"
 
       - name: Scan frontend image
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.35.0
         with:
           image-ref: ayyandar/three-tier-frontend:${{ github.sha }}
           format: table
