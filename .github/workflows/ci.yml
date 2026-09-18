@@ -179,7 +179,7 @@ jobs:
   # Build + Scan + Push
   # =========================
   docker:
-    name: Docker Build and Push
+    name: Docker Build Scan and Push
     runs-on: ubuntu-latest
 
     needs:
@@ -205,19 +205,23 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Build backend locally so Trivy can scan it
       - name: Build backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          push: false
-          tags: ayyandar/three-tier-backend:${{ github.sha }}
+        run: |
+          docker build \
+            -t ayyandar/three-tier-backend:${{ github.sha }} \
+            ./backend
 
+      # Build frontend locally so Trivy can scan it
       - name: Build frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: false
-          tags: ayyandar/three-tier-frontend:${{ github.sha }}
+        run: |
+          docker build \
+            -t ayyandar/three-tier-frontend:${{ github.sha }} \
+            ./frontend
+
+      # =========================
+      # Trivy Scan
+      # =========================
 
       - name: Scan backend image
         uses: aquasecurity/trivy-action@v0.35.0
@@ -237,19 +241,21 @@ jobs:
           ignore-unfixed: true
           exit-code: "1"
 
+      # =========================
+      # Push Images
+      # =========================
+
       - name: Push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./backend
-          push: true
-          tags: ayyandar/three-tier-backend:${{ github.sha }}
+        run: |
+          docker push ayyandar/three-tier-backend:${{ github.sha }}
 
       - name: Push frontend image
-        uses: docker/build-push-action@v6
-        with:
-          context: ./frontend
-          push: true
-          tags: ayyandar/three-tier-frontend:${{ github.sha }}
+        run: |
+          docker push ayyandar/three-tier-frontend:${{ github.sha }}
+
+      # =========================
+      # Update Helm
+      # =========================
 
       - name: Install yq
         run: |
