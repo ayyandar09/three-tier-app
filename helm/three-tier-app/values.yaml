@@ -4,11 +4,11 @@ replicaCount:
 images:
   frontend:
     repository: ayyandar/three-tier-frontend
-    tag: "ad769648b67fb78d24c7290d99d2493bbf857c05"
+    tag: "b410b7"
     pullPolicy: Always
   backend:
     repository: ayyandar/three-tier-backend
-    tag: "ad769648b67fb78d24c7290d99d2493bbf857c05"
+    tag: "b410b7"
     pullPolicy: Always
   database:
     repository: postgres
