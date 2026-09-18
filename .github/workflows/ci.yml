@@ -196,6 +196,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set image tag
+        run: echo "IMAGE_TAG=${GITHUB_SHA::6}" >> $GITHUB_ENV
+
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -205,18 +208,20 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Build backend locally so Trivy can scan it
+      # =========================
+      # Build Images
+      # =========================
+
       - name: Build backend image
         run: |
           docker build \
-            -t ayyandar/three-tier-backend:${{ github.sha }} \
+            -t ayyandar/three-tier-backend:${{ env.IMAGE_TAG }} \
             ./backend
 
-      # Build frontend locally so Trivy can scan it
       - name: Build frontend image
         run: |
           docker build \
-            -t ayyandar/three-tier-frontend:${{ github.sha }} \
+            -t ayyandar/three-tier-frontend:${{ env.IMAGE_TAG }} \
             ./frontend
 
       # =========================
@@ -226,7 +231,7 @@ jobs:
       - name: Scan backend image
         uses: aquasecurity/trivy-action@v0.35.0
         with:
-          image-ref: ayyandar/three-tier-backend:${{ github.sha }}
+          image-ref: ayyandar/three-tier-backend:${{ env.IMAGE_TAG }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -235,7 +240,7 @@ jobs:
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@v0.35.0
         with:
-          image-ref: ayyandar/three-tier-frontend:${{ github.sha }}
+          image-ref: ayyandar/three-tier-frontend:${{ env.IMAGE_TAG }}
           format: table
           severity: CRITICAL,HIGH
           ignore-unfixed: true
@@ -247,11 +252,11 @@ jobs:
 
       - name: Push backend image
         run: |
-          docker push ayyandar/three-tier-backend:${{ github.sha }}
+          docker push ayyandar/three-tier-backend:${{ env.IMAGE_TAG }}
 
       - name: Push frontend image
         run: |
-          docker push ayyandar/three-tier-frontend:${{ github.sha }}
+          docker push ayyandar/three-tier-frontend:${{ env.IMAGE_TAG }}
 
       # =========================
       # Update Helm
@@ -266,8 +271,8 @@ jobs:
       - name: Update Helm image tags
         run: |
           yq -i \
-            '.images.backend.tag = "${{ github.sha }}" |
-             .images.frontend.tag = "${{ github.sha }}"' \
+            '.images.backend.tag = "${{ env.IMAGE_TAG }}" |
+             .images.frontend.tag = "${{ env.IMAGE_TAG }}"' \
             helm/three-tier-app/values.yaml
 
       - name: Commit Helm changes
@@ -278,6 +283,6 @@ jobs:
           git add helm/three-tier-app/values.yaml
 
           git diff --cached --quiet || \
-            git commit -m "chore: update images to ${{ github.sha }} [skip ci]"
+            git commit -m "chore: update images to ${{ env.IMAGE_TAG }} [skip ci]"
 
           git push
