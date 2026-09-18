@@ -17,10 +17,19 @@ spec:
         app: frontend
 
     spec:
+      automountServiceAccountToken: false
+
       containers:
         - name: frontend
-          image: ayyandar/three-tier-frontend:v2
-          imagePullPolicy: Never
+          image: ayyandar/three-tier-frontend:latest
+          imagePullPolicy: Always
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
 
           ports:
             - containerPort: 80

@@ -17,10 +17,19 @@ spec:
         app: backend
 
     spec:
+      automountServiceAccountToken: false
+
       containers:
         - name: backend
           image: ayyandar/three-tier-backend:latest
-          imagePullPolicy: Never
+          imagePullPolicy: Always
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            capabilities:
+              drop:
+                - ALL
 
           ports:
             - containerPort: 8000
@@ -72,3 +81,21 @@ spec:
               port: 8000
             initialDelaySeconds: 30
             periodSeconds: 20
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: three-tier-app
+
+spec:
+  selector:
+    app: backend
+
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+
+  type: ClusterIP
