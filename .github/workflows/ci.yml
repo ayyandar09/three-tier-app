@@ -8,6 +8,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   backend:
     name: Backend Tests
@@ -134,12 +137,15 @@ jobs:
         with:
           directory: .
           framework: kubernetes
-          quiet: true
           soft_fail: false
 
-  docker:
-    name: Docker Build & Security Scan
+    docker:
+    name: Docker Build, Scan, Push & GitOps Update
     runs-on: ubuntu-latest
+
+    # Only build, scan, push images, and update Helm on pushes to main.
+    # Pull requests still run all validation jobs above.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     needs:
       - backend
@@ -153,13 +159,35 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker images
-        run: docker compose build
+      - name: Set image tag
+        id: vars
+        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
-      - name: Run Trivy scanner
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          load: true
+          tags: |
+            ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}
+
+      - name: Build frontend image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          load: true
+          tags: |
+            ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}
+
+      - name: Scan backend image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "three-tier-app-backend:latest"
+          image-ref: "ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}"
           format: "table"
           exit-code: "1"
           ignore-unfixed: true
@@ -168,8 +196,46 @@ jobs:
       - name: Scan frontend image
         uses: aquasecurity/trivy-action@master
         with:
-          image-ref: "three-tier-app-frontend:latest"
+          image-ref: "ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}"
           format: "table"
           exit-code: "1"
           ignore-unfixed: true
           severity: "CRITICAL,HIGH"
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Push backend image
+        run: |
+          docker push ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}
+
+      - name: Push frontend image
+        run: |
+          docker push ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}
+
+      - name: Install yq
+        uses: mikefarah/yq@v4
+
+      - name: Update Helm image tags
+        env:
+          IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}
+        run: |
+          yq -i '.images.frontend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml
+          yq -i '.images.backend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml
+
+      - name: Commit Helm image update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add helm/three-tier-app/values.yaml
+
+          if git diff --cached --quiet; then
+            echo "No Helm changes to commit."
+          else
+            git commit -m "chore: update images to ${GITHUB_SHA} [skip ci]"
+            git push
+          fi

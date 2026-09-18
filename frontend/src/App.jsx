@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import "./App.css";
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 function App() {
   const [tasks, setTasks] = useState([]);
@@ -10,7 +10,7 @@ function App() {
 
   const loadTasks = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/tasks`);
+      const response = await fetch(`${API_URL}/tasks`);
 
       if (!response.ok) {
         throw new Error("Failed to load tasks");
@@ -30,7 +30,7 @@ function App() {
 
   const fetchTasks = async () => {
     try {
-      const response = await fetch(`${API_URL}/api/tasks`);
+      const response = await fetch(`${API_URL}/tasks`);
 
       if (!response.ok) {
         throw new Error("Failed to load tasks");
@@ -65,7 +65,7 @@ function App() {
     if (!title.trim()) return;
 
     try {
-      const response = await fetch(`${API_URL}/api/tasks`, {
+      const response = await fetch(`${API_URL}/tasks`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -88,7 +88,7 @@ function App() {
 
   const completeTask = async (id) => {
     try {
-      await fetch(`${API_URL}/api/tasks/${id}/complete`, {
+      await fetch(`${API_URL}/tasks/${id}/complete`, {
         method: "PUT",
       });
 
@@ -100,7 +100,7 @@ function App() {
 
   const deleteTask = async (id) => {
     try {
-      await fetch(`${API_URL}/api/tasks/${id}`, {
+      await fetch(`${API_URL}/tasks/${id}`, {
         method: "DELETE",
       });
 

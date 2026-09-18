@@ -1,0 +1,204 @@
+[1mdiff --git a/.github/workflows/ci.yml b/.github/workflows/ci.yml[m
+[1mindex c54341b..8bdafda 100644[m
+[1m--- a/.github/workflows/ci.yml[m
+[1m+++ b/.github/workflows/ci.yml[m
+[36m@@ -8,6 +8,9 @@[m [mon:[m
+     branches:[m
+       - main[m
+ [m
+[32m+[m[32mpermissions:[m
+[32m+[m[32m  contents: write[m
+[32m+[m
+ jobs:[m
+   backend:[m
+     name: Backend Tests[m
+[36m@@ -134,13 +137,16 @@[m [mjobs:[m
+         with:[m
+           directory: .[m
+           framework: kubernetes[m
+[31m-          quiet: true[m
+           soft_fail: false[m
+ [m
+[31m-  docker:[m
+[31m-    name: Docker Build & Security Scan[m
+[32m+[m[32m    docker:[m
+[32m+[m[32m    name: Docker Build, Scan, Push & GitOps Update[m
+     runs-on: ubuntu-latest[m
+ [m
+[32m+[m[32m    # Only build, scan, push images, and update Helm on pushes to main.[m
+[32m+[m[32m    # Pull requests still run all validation jobs above.[m
+[32m+[m[32m    if: github.event_name == 'push' && github.ref == 'refs/heads/main'[m
+[32m+[m
+     needs:[m
+       - backend[m
+       - frontend[m
+[36m@@ -153,13 +159,35 @@[m [mjobs:[m
+       - name: Checkout code[m
+         uses: actions/checkout@v4[m
+ [m
+[31m-      - name: Build Docker images[m
+[31m-        run: docker compose build[m
+[32m+[m[32m      - name: Set image tag[m
+[32m+[m[32m        id: vars[m
+[32m+[m[32m        run: echo "IMAGE_TAG=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"[m
+[32m+[m
+[32m+[m[32m      - name: Set up Docker Buildx[m
+[32m+[m[32m        uses: docker/setup-buildx-action@v3[m
+[32m+[m
+[32m+[m[32m      - name: Build backend image[m
+[32m+[m[32m        uses: docker/build-push-action@v6[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          context: ./backend[m
+[32m+[m[32m          file: ./backend/Dockerfile[m
+[32m+[m[32m          load: true[m
+[32m+[m[32m          tags: |[m
+[32m+[m[32m            ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}[m
+[32m+[m
+[32m+[m[32m      - name: Build frontend image[m
+[32m+[m[32m        uses: docker/build-push-action@v6[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          context: ./frontend[m
+[32m+[m[32m          file: ./frontend/Dockerfile[m
+[32m+[m[32m          load: true[m
+[32m+[m[32m          tags: |[m
+[32m+[m[32m            ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}[m
+ [m
+[31m-      - name: Run Trivy scanner[m
+[32m+[m[32m      - name: Scan backend image[m
+         uses: aquasecurity/trivy-action@master[m
+         with:[m
+[31m-          image-ref: "three-tier-app-backend:latest"[m
+[32m+[m[32m          image-ref: "ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}"[m
+           format: "table"[m
+           exit-code: "1"[m
+           ignore-unfixed: true[m
+[36m@@ -168,8 +196,46 @@[m [mjobs:[m
+       - name: Scan frontend image[m
+         uses: aquasecurity/trivy-action@master[m
+         with:[m
+[31m-          image-ref: "three-tier-app-frontend:latest"[m
+[32m+[m[32m          image-ref: "ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}"[m
+           format: "table"[m
+           exit-code: "1"[m
+           ignore-unfixed: true[m
+           severity: "CRITICAL,HIGH"[m
+[32m+[m
+[32m+[m[32m      - name: Log in to Docker Hub[m
+[32m+[m[32m        uses: docker/login-action@v3[m
+[32m+[m[32m        with:[m
+[32m+[m[32m          username: ${{ secrets.DOCKERHUB_USERNAME }}[m
+[32m+[m[32m          password: ${{ secrets.DOCKERHUB_TOKEN }}[m
+[32m+[m
+[32m+[m[32m      - name: Push backend image[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          docker push ayyandar/three-tier-backend:${{ steps.vars.outputs.IMAGE_TAG }}[m
+[32m+[m
+[32m+[m[32m      - name: Push frontend image[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          docker push ayyandar/three-tier-frontend:${{ steps.vars.outputs.IMAGE_TAG }}[m
+[32m+[m
+[32m+[m[32m      - name: Install yq[m
+[32m+[m[32m        uses: mikefarah/yq@v4[m
+[32m+[m
+[32m+[m[32m      - name: Update Helm image tags[m
+[32m+[m[32m        env:[m
+[32m+[m[32m          IMAGE_TAG: ${{ steps.vars.outputs.IMAGE_TAG }}[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          yq -i '.images.frontend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml[m
+[32m+[m[32m          yq -i '.images.backend.tag = env(IMAGE_TAG)' helm/three-tier-app/values.yaml[m
+[32m+[m
+[32m+[m[32m      - name: Commit Helm image update[m
+[32m+[m[32m        run: |[m
+[32m+[m[32m          git config user.name "github-actions[bot]"[m
+[32m+[m[32m          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"[m
+[32m+[m
+[32m+[m[32m          git add helm/three-tier-app/values.yaml[m
+[32m+[m
+[32m+[m[32m          if git diff --cached --quiet; then[m
+[32m+[m[32m            echo "No Helm changes to commit."[m
+[32m+[m[32m          else[m
+[32m+[m[32m            git commit -m "chore: update images to ${GITHUB_SHA} [skip ci]"[m
+[32m+[m[32m            git push[m
+[32m+[m[32m          fi[m
+\ No newline at end of file[m
+[1mdiff --git a/.gitignore b/.gitignore[m
+[1mindex 4d5252e..4305f0c 100644[m
+[1m--- a/.gitignore[m
+[1m+++ b/.gitignore[m
+[36m@@ -30,3 +30,5 @@[m [mdocker-compose.override.yml[m
+ [m
+ # Kubernetes[m
+ *.secret.yaml[m
+[32m+[m
+[32m+[m[32mk8s/database/secret.yaml[m
+[1mdiff --git a/frontend/Dockerfile b/frontend/Dockerfile[m
+[1mindex be6671f..aff9e0c 100644[m
+[1m--- a/frontend/Dockerfile[m
+[1m+++ b/frontend/Dockerfile[m
+[36m@@ -24,7 +24,7 @@[m [mRUN apk update && apk upgrade[m
+ [m
+ # Copy Vite's production build into Nginx[m
+ COPY --from=builder /app/dist /usr/share/nginx/html[m
+[31m-[m
+[32m+[m[32mCOPY nginx.conf /etc/nginx/conf.d/default.conf[m
+ # Nginx listens on port 80[m
+ EXPOSE 80[m
+ [m
+[1mdiff --git a/frontend/src/App.jsx b/frontend/src/App.jsx[m
+[1mindex 1fa1708..9e7e82e 100644[m
+[1m--- a/frontend/src/App.jsx[m
+[1m+++ b/frontend/src/App.jsx[m
+[36m@@ -1,7 +1,7 @@[m
+ import { useEffect, useState } from "react";[m
+ import "./App.css";[m
+ [m
+[31m-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";[m
+[32m+[m[32mconst API_URL = import.meta.env.VITE_API_URL || "/api";[m
+ [m
+ function App() {[m
+   const [tasks, setTasks] = useState([]);[m
+[36m@@ -10,7 +10,7 @@[m [mfunction App() {[m
+ [m
+   const loadTasks = async () => {[m
+     try {[m
+[31m-      const response = await fetch(`${API_URL}/api/tasks`);[m
+[32m+[m[32m      const response = await fetch(`${API_URL}/tasks`);[m
+ [m
+       if (!response.ok) {[m
+         throw new Error("Failed to load tasks");[m
+[36m@@ -30,7 +30,7 @@[m [mfunction App() {[m
+ [m
+   const fetchTasks = async () => {[m
+     try {[m
+[31m-      const response = await fetch(`${API_URL}/api/tasks`);[m
+[32m+[m[32m      const response = await fetch(`${API_URL}/tasks`);[m
+ [m
+       if (!response.ok) {[m
+         throw new Error("Failed to load tasks");[m
+[36m@@ -65,7 +65,7 @@[m [mfunction App() {[m
+     if (!title.trim()) return;[m
+ [m
+     try {[m
+[31m-      const response = await fetch(`${API_URL}/api/tasks`, {[m
+[32m+[m[32m      const response = await fetch(`${API_URL}/tasks`, {[m
+         method: "POST",[m
+         headers: {[m
+           "Content-Type": "application/json",[m
+[36m@@ -88,7 +88,7 @@[m [mfunction App() {[m
+ [m
+   const completeTask = async (id) => {[m
+     try {[m
+[31m-      await fetch(`${API_URL}/api/tasks/${id}/complete`, {[m
+[32m+[m[32m      await fetch(`${API_URL}/tasks/${id}/complete`, {[m
+         method: "PUT",[m
+       });[m
+ [m
+[36m@@ -100,7 +100,7 @@[m [mfunction App() {[m
+ [m
+   const deleteTask = async (id) => {[m
+     try {[m
+[31m-      await fetch(`${API_URL}/api/tasks/${id}`, {[m
+[32m+[m[32m      await fetch(`${API_URL}/tasks/${id}`, {[m
+         method: "DELETE",[m
+       });[m
+ [m
