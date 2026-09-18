@@ -1,18 +1,15 @@
 replicaCount:
   frontend: 1
   backend: 1
-
 images:
   frontend:
     repository: ayyandar/three-tier-frontend
-    tag: "dev"
+    tag: "ad769648b67fb78d24c7290d99d2493bbf857c05"
     pullPolicy: Always
-
   backend:
     repository: ayyandar/three-tier-backend
-    tag: "dev"
+    tag: "ad769648b67fb78d24c7290d99d2493bbf857c05"
     pullPolicy: Always
-
   database:
     repository: postgres
     tag: "16-alpine"
